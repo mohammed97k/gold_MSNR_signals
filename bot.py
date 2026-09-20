@@ -54,7 +54,10 @@ def fetch_m15(bars=500):
     df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
     for c in ["open", "high", "low", "close"]:
         df[c] = pd.to_numeric(df[c])
-    df["volume"] = pd.to_numeric(df.get("volume", 0), errors="coerce").fillna(0)
+    if "volume" in df.columns:
+        df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0)
+    else:
+        df["volume"] = 0.0
     return df.set_index("datetime").sort_index()
 
 # ============================================================
