@@ -23,7 +23,7 @@ LEN_PIVOT  = 10
 SESSION_START = 7
 SESSION_END   = 18
 RISK_PCT      = 1.0
-LIMIT_EXPIRY_BARS = 96   # 24 hours on M15
+LIMIT_EXPIRY_BARS = 96
 
 STATE_FILE = "state.json"
 
@@ -105,7 +105,6 @@ def detect_signal(df):
     min_sl_dist = SL_PTS_MIN * PIP
     max_sl_dist = SL_PTS_MAX * PIP
 
-    # ─── LONG ───
     if (res_broken and res_level is not None
         and l[i] <= res_level <= c[i] and c[i] > o[i]):
 
@@ -130,7 +129,6 @@ def detect_signal(df):
             "signal_time": idx[i],
         }
 
-    # ─── SHORT ───
     elif (sup_broken and sup_level is not None
           and h[i] >= sup_level >= c[i] and c[i] < o[i]):
 
@@ -161,10 +159,19 @@ def detect_signal(df):
 # STATE
 # ============================================================
 def load_state():
+    default = {"pending": [], "active": [], "closed": []}
     if os.path.exists(STATE_FILE):
-        with open(STATE_FILE) as f:
-            return json.load(f)
-    return {"pending": [], "active": [], "closed": []}
+        try:
+            with open(STATE_FILE) as f:
+                data = json.load(f)
+            for k in default.keys():
+                if k not in data:
+                    data[k] = []
+            return data
+        except (json.JSONDecodeError, Exception) as e:
+            print(f"Corrupted state file, resetting: {e}")
+            return default
+    return default
 
 def save_state(state):
     state["closed"] = state["closed"][-100:]
@@ -269,7 +276,6 @@ async def track_pending(bot, state, df):
             state["active"].append(sig)
             print(f"  FILLED: {sig.get('id','?')}")
         else:
-            # Check expiry
             bars_since = len(after)
             if bars_since >= LIMIT_EXPIRY_BARS:
                 expiry_ts = after.index[-1]
@@ -287,7 +293,6 @@ async def track_pending(bot, state, df):
 async def track_active(bot, state, df):
     still_active = []
     for sig in state["active"]:
-        # Start from fill_time for LIMIT, or signal_time for MARKET
         start_time = pd.to_datetime(sig.get("fill_time", sig["signal_time"]))
         after = df[df.index > start_time]
         if len(after) == 0:
@@ -331,13 +336,9 @@ async def main():
         print(f"Fetch error: {e}")
         return
 
-    # 1. Track pending LIMIT orders
     await track_pending(bot, state, df)
-
-    # 2. Track active trades (SL/TP)
     await track_active(bot, state, df)
 
-    # 3. Detect new signal — only if no pending AND no active
     if len(state["pending"]) == 0 and len(state["active"]) == 0:
         sig = detect_signal(df)
         if sig:
