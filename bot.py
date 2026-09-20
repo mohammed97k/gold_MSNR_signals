@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
 Pure MSNR Strategy Bot — XAUUSD M15
-Strategy: Pivot BOS + Session + SL/TP 1:1.8
-No Bias, No Story, No Filters (Original)
+Supports both LIMIT and MARKET order types (same as Pine logic)
 """
 import os, requests, pandas as pd, numpy as np, asyncio, json
 from datetime import datetime, timezone
@@ -24,6 +23,7 @@ LEN_PIVOT  = 10
 SESSION_START = 7
 SESSION_END   = 18
 RISK_PCT      = 1.0
+LIMIT_EXPIRY_BARS = 96   # 24 hours on M15
 
 STATE_FILE = "state.json"
 
@@ -39,7 +39,7 @@ async def send_msg(bot, text):
         return False
 
 # ============================================================
-# DATA FETCH
+# DATA
 # ============================================================
 def fetch_m15(bars=500):
     url = "https://api.twelvedata.com/time_series"
@@ -58,7 +58,7 @@ def fetch_m15(bars=500):
     return df.set_index("datetime").sort_index()
 
 # ============================================================
-# STRATEGY LOGIC
+# SIGNAL DETECTION
 # ============================================================
 def detect_signal(df):
     h = df['high'].values
@@ -105,14 +105,23 @@ def detect_signal(df):
     min_sl_dist = SL_PTS_MIN * PIP
     max_sl_dist = SL_PTS_MAX * PIP
 
+    # ─── LONG ───
     if (res_broken and res_level is not None
         and l[i] <= res_level <= c[i] and c[i] > o[i]):
-        entry = c[i]
+
+        is_limit = abs(c[i] - res_level) > 0.40
+        order_type = "LIMIT" if is_limit else "MARKET"
+
         raw_dist = abs(c[i] - min(l[i], res_level)) + 0.50
         sl_dist = max(min_sl_dist, min(max_sl_dist, raw_dist))
         tp_dist = max(10.0, min(25.0, sl_dist * RR_RATIO))
+
+        entry = res_level if is_limit else c[i]
+
         return {
             "dir": "BUY",
+            "order_type": order_type,
+            "level": res_level,
             "entry": entry,
             "sl": entry - sl_dist,
             "tp": entry + tp_dist,
@@ -121,14 +130,23 @@ def detect_signal(df):
             "signal_time": idx[i],
         }
 
+    # ─── SHORT ───
     elif (sup_broken and sup_level is not None
           and h[i] >= sup_level >= c[i] and c[i] < o[i]):
-        entry = c[i]
+
+        is_limit = abs(c[i] - sup_level) > 0.40
+        order_type = "LIMIT" if is_limit else "MARKET"
+
         raw_dist = abs(max(h[i], sup_level) - c[i]) + 0.50
         sl_dist = max(min_sl_dist, min(max_sl_dist, raw_dist))
         tp_dist = max(10.0, min(25.0, sl_dist * RR_RATIO))
+
+        entry = sup_level if is_limit else c[i]
+
         return {
             "dir": "SELL",
+            "order_type": order_type,
+            "level": sup_level,
             "entry": entry,
             "sl": entry + sl_dist,
             "tp": entry - tp_dist,
@@ -146,7 +164,7 @@ def load_state():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE) as f:
             return json.load(f)
-    return {"active": [], "closed": []}
+    return {"pending": [], "active": [], "closed": []}
 
 def save_state(state):
     state["closed"] = state["closed"][-100:]
@@ -158,16 +176,49 @@ def save_state(state):
 # ============================================================
 def format_signal(s):
     emoji = "🟢" if s["dir"] == "BUY" else "🔴"
+    if s["order_type"] == "LIMIT":
+        if s["dir"] == "BUY":
+            order_label = "🟡 شراء معلّق (BUY LIMIT)"
+        else:
+            order_label = "🟡 بيع معلّق (SELL LIMIT)"
+    else:
+        if s["dir"] == "BUY":
+            order_label = "⚡ شراء فوري (BUY MARKET)"
+        else:
+            order_label = "⚡ بيع فوري (SELL MARKET)"
+
     return (
         f"{emoji} *XAUUSD SIGNAL*\n\n"
-        f"*Direction:* *{s['dir']}*\n"
-        f"*Time:* `{s['signal_time'].strftime('%Y-%m-%d %H:%M UTC')}`\n\n"
-        f"*Entry:*  `{s['entry']:.2f}`\n"
-        f"*SL:*     `{s['sl']:.2f}`  ({s['risk_pips']:.1f} pips)\n"
-        f"*TP:*     `{s['tp']:.2f}`  ({s['reward_pips']:.1f} pips)\n"
+        f"*النوع:* {order_label}\n"
+        f"*الاتجاه:* *{s['dir']}*\n"
+        f"*الوقت:* `{s['signal_time'].strftime('%Y-%m-%d %H:%M UTC')}`\n\n"
+        f"*دخول:*  `{s['entry']:.2f}`\n"
+        f"*ستوب:*  `{s['sl']:.2f}`  ({s['risk_pips']:.1f} نقطة)\n"
+        f"*هدف:*   `{s['tp']:.2f}`  ({s['reward_pips']:.1f} نقطة)\n"
         f"*R:R:*    1:{RR_RATIO}\n"
-        f"*Risk:*   {RISK_PCT}%\n\n"
+        f"*المخاطرة:* {RISK_PCT}%\n\n"
         f"_Pure MSNR v1.0_"
+    )
+
+def format_fill(sig, fill_ts):
+    emoji = "🟢" if sig["dir"] == "BUY" else "🔴"
+    return (
+        f"✅ *LIMIT FILLED*\n\n"
+        f"*الزوج:* XAUUSD\n"
+        f"*الاتجاه:* {sig['dir']}\n"
+        f"*دخول:* `{sig['entry']:.2f}`\n"
+        f"*وقت التفعيل:* `{fill_ts.strftime('%Y-%m-%d %H:%M UTC')}`\n"
+        f"*ستوب:* `{sig['sl']:.2f}`\n"
+        f"*هدف:* `{sig['tp']:.2f}`"
+    )
+
+def format_expired(sig, expiry_ts):
+    return (
+        f"⏰ *LIMIT EXPIRED*\n\n"
+        f"*الزوج:* XAUUSD\n"
+        f"*الاتجاه:* {sig['dir']}\n"
+        f"*مستوى:* `{sig['entry']:.2f}`\n"
+        f"*انتهت الصلاحية:* `{expiry_ts.strftime('%Y-%m-%d %H:%M UTC')}`"
     )
 
 def format_result(sig, outcome_type, exit_price, close_ts):
@@ -176,13 +227,59 @@ def format_result(sig, outcome_type, exit_price, close_ts):
     pips = sig['reward_pips'] if is_win else -sig['risk_pips']
     return (
         f"{emoji} *{outcome_type} HIT*\n\n"
-        f"*Pair:* XAUUSD\n"
-        f"*Dir:* {sig['dir']}\n"
-        f"*Entry:* `{sig['entry']:.2f}`\n"
-        f"*Exit:*  `{exit_price:.2f}`\n"
-        f"*Time:* `{close_ts.strftime('%Y-%m-%d %H:%M UTC')}`\n"
-        f"*Result:* *{pips:+.1f} pips*"
+        f"*الزوج:* XAUUSD\n"
+        f"*الاتجاه:* {sig['dir']}\n"
+        f"*النوع:* {sig['order_type']}\n"
+        f"*دخول:* `{sig['entry']:.2f}`\n"
+        f"*خروج:*  `{exit_price:.2f}`\n"
+        f"*الوقت:* `{close_ts.strftime('%Y-%m-%d %H:%M UTC')}`\n"
+        f"*النتيجة:* *{pips:+.1f} نقطة*"
     )
+
+# ============================================================
+# TRACK PENDING LIMIT ORDERS
+# ============================================================
+async def track_pending(bot, state, df):
+    still_pending = []
+    for sig in state["pending"]:
+        sig_time = pd.to_datetime(sig["signal_time"])
+        after = df[df.index > sig_time]
+        if len(after) == 0:
+            still_pending.append(sig)
+            continue
+
+        filled = False
+        fill_ts = None
+
+        for ts, bar in after.iterrows():
+            if sig["dir"] == "BUY":
+                if bar["low"] <= sig["entry"]:
+                    filled = True
+                    fill_ts = ts
+                    break
+            else:
+                if bar["high"] >= sig["entry"]:
+                    filled = True
+                    fill_ts = ts
+                    break
+
+        if filled:
+            await send_msg(bot, format_fill(sig, fill_ts))
+            sig["fill_time"] = str(fill_ts)
+            state["active"].append(sig)
+            print(f"  FILLED: {sig.get('id','?')}")
+        else:
+            # Check expiry
+            bars_since = len(after)
+            if bars_since >= LIMIT_EXPIRY_BARS:
+                expiry_ts = after.index[-1]
+                await send_msg(bot, format_expired(sig, expiry_ts))
+                state["closed"].append({**sig, "outcome": "EXPIRED", "close_time": str(expiry_ts)})
+                print(f"  EXPIRED: {sig.get('id','?')}")
+            else:
+                still_pending.append(sig)
+
+    state["pending"] = still_pending
 
 # ============================================================
 # TRACK ACTIVE TRADES
@@ -190,8 +287,9 @@ def format_result(sig, outcome_type, exit_price, close_ts):
 async def track_active(bot, state, df):
     still_active = []
     for sig in state["active"]:
-        sig_time = pd.to_datetime(sig["signal_time"])
-        after = df[df.index > sig_time]
+        # Start from fill_time for LIMIT, or signal_time for MARKET
+        start_time = pd.to_datetime(sig.get("fill_time", sig["signal_time"]))
+        after = df[df.index > start_time]
         if len(after) == 0:
             still_active.append(sig)
             continue
@@ -233,28 +331,40 @@ async def main():
         print(f"Fetch error: {e}")
         return
 
+    # 1. Track pending LIMIT orders
+    await track_pending(bot, state, df)
+
+    # 2. Track active trades (SL/TP)
     await track_active(bot, state, df)
 
-    sig = detect_signal(df)
-    if sig:
-        sig_id = f"XAU_{sig['signal_time'].strftime('%Y%m%d_%H%M')}"
-        active_ids = {s.get("id") for s in state["active"]}
-        closed_ids = {s.get("id") for s in state["closed"]}
+    # 3. Detect new signal — only if no pending AND no active
+    if len(state["pending"]) == 0 and len(state["active"]) == 0:
+        sig = detect_signal(df)
+        if sig:
+            sig_id = f"XAU_{sig['signal_time'].strftime('%Y%m%d_%H%M')}"
+            known_ids = {s.get("id") for s in state["pending"] + state["active"] + state["closed"]}
 
-        if sig_id not in active_ids and sig_id not in closed_ids:
-            sig["id"] = sig_id
-            sig_time_dt = sig["signal_time"]
-            sig["signal_time"] = str(sig_time_dt)
-            state["active"].append(sig)
-            await send_msg(bot, format_signal({**sig, "signal_time": sig_time_dt}))
-            print(f"  NEW SIGNAL: {sig_id}")
+            if sig_id not in known_ids:
+                sig["id"] = sig_id
+                sig_time_dt = sig["signal_time"]
+                sig["signal_time"] = str(sig_time_dt)
+
+                if sig["order_type"] == "LIMIT":
+                    state["pending"].append(sig)
+                else:
+                    state["active"].append(sig)
+
+                await send_msg(bot, format_signal({**sig, "signal_time": sig_time_dt}))
+                print(f"  NEW SIGNAL: {sig_id} ({sig['order_type']})")
+            else:
+                print(f"  Signal {sig_id} already known")
         else:
-            print(f"  Signal {sig_id} already known")
+            print("  No signal")
     else:
-        print("  No signal")
+        print(f"  Busy: pending={len(state['pending'])}, active={len(state['active'])}")
 
     save_state(state)
-    print(f"Active: {len(state['active'])} | Closed: {len(state['closed'])}")
+    print(f"Pending: {len(state['pending'])} | Active: {len(state['active'])} | Closed: {len(state['closed'])}")
 
 if __name__ == "__main__":
     asyncio.run(main())
