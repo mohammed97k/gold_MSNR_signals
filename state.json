@@ -1,5 +1,5 @@
 {
-  "pending": [],   // ← LIMIT orders في انتظار التفعيل
-  "active": [],    // ← صفقات مفتوحة (Market فوري + Limit مُفعّل)
-  "closed": []     // ← صفقات مغلقة (TP/SL/Expired)
+  "pending": [],
+  "active": [],
+  "closed": []
 }
