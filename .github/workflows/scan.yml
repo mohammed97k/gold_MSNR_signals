@@ -2,7 +2,7 @@ name: MSNR Bot Scan
 
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -32,8 +32,8 @@ jobs:
         run: |
           git config user.name "MSNR Bot"
           git config user.email "bot@users.noreply.github.com"
-          if [ -f state.json ]; then
-            git add state.json
+          if [ -f trade_state.json ]; then
+            git add trade_state.json
             git diff --staged --quiet || git commit -m "Update state [skip ci]"
             git push
           fi
