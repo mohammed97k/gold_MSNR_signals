@@ -1,5 +1,6 @@
 {
-  "pending": [
+  "pending": [],
+  "active": [
     {
       "dir": "SELL",
       "order_type": "LIMIT",
@@ -10,10 +11,10 @@
       "risk_pips": 91.16500000000087,
       "reward_pips": 164.09700000000157,
       "signal_time": "2026-09-22 10:00:00+00:00",
-      "id": "XAU_20260922_1000"
+      "id": "XAU_20260922_1000",
+      "fill_time": "2026-09-22 12:15:00+00:00"
     }
   ],
-  "active": [],
   "closed": [
     {
       "dir": "BUY",
