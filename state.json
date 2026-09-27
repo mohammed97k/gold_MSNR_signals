@@ -1,7 +1,14 @@
 {
     "GBPUSD": {
-        "active_trade": null,
-        "trades_today": 0,
+        "active_trade": {
+            "side": "sell",
+            "entry": 1.324815,
+            "sl": 1.325615,
+            "tp": 1.322815,
+            "rr": 2.5,
+            "entry_time": "08:13 PM"
+        },
+        "trades_today": 1,
         "last_date": "2026-09-27"
     },
     "USDJPY": {
