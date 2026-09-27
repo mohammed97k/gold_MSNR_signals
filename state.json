@@ -12,14 +12,7 @@
         "last_date": "2026-09-28"
     },
     "USDJPY": {
-        "active_trade": {
-            "side": "sell",
-            "entry": 157.270015,
-            "sl": 157.350015,
-            "tp": 157.070015,
-            "rr": 2.5,
-            "entry_time": "07:15 PM"
-        },
+        "active_trade": null,
         "trades_today": 0,
         "last_date": "2026-09-28"
     },
