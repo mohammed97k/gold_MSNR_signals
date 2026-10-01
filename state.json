@@ -10,14 +10,7 @@
         "last_date": "2026-10-01"
     },
     "AUDUSD": {
-        "active_trade": {
-            "side": "sell",
-            "entry": 0.69504,
-            "sl": 0.69584,
-            "tp": 0.69324,
-            "rr": 2.25,
-            "entry_time": "01:46 PM"
-        },
+        "active_trade": null,
         "trades_today": 1,
         "last_date": "2026-10-01"
     },
