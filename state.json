@@ -1,13 +1,6 @@
 {
     "GBPUSD": {
-        "active_trade": {
-            "side": "sell",
-            "entry": 1.3260049999999999,
-            "sl": 1.3285049999999998,
-            "tp": 1.32237,
-            "rr": 1.4539999999999331,
-            "entry_time": "07:17 AM"
-        },
+        "active_trade": null,
         "trades_today": 1,
         "last_date": "2026-10-01"
     },
