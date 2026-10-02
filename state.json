@@ -29,8 +29,15 @@
         "last_date": "2026-10-02"
     },
     "USDCAD": {
-        "active_trade": null,
-        "trades_today": 0,
+        "active_trade": {
+            "side": "buy",
+            "entry": 1.42447,
+            "sl": 1.42197,
+            "tp": 1.42636,
+            "rr": 0.7560000000000677,
+            "entry_time": "01:15 PM"
+        },
+        "trades_today": 1,
         "last_date": "2026-10-02"
     }
 }
