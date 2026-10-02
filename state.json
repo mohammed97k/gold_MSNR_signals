@@ -12,14 +12,7 @@
         "last_date": "2026-10-02"
     },
     "USDJPY": {
-        "active_trade": {
-            "side": "buy",
-            "entry": 157.84695499999998,
-            "sl": 157.59695499999998,
-            "tp": 158.28017,
-            "rr": 1.7328600000000733,
-            "entry_time": "10:17 AM"
-        },
+        "active_trade": null,
         "trades_today": 2,
         "last_date": "2026-10-02"
     },
