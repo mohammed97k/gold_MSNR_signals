@@ -8,18 +8,18 @@
             "rr": 5.063291139240542,
             "entry_time": "12:19 AM"
         },
-        "trades_today": 1,
-        "last_date": "2026-10-03"
+        "trades_today": 0,
+        "last_date": "2026-10-04"
     },
     "USDJPY": {
         "active_trade": null,
         "trades_today": 0,
-        "last_date": "2026-10-03"
+        "last_date": "2026-10-04"
     },
     "AUDUSD": {
         "active_trade": null,
         "trades_today": 0,
-        "last_date": "2026-10-03"
+        "last_date": "2026-10-04"
     },
     "USDCAD": {
         "active_trade": {
@@ -31,6 +31,6 @@
             "entry_time": "05:18 PM"
         },
         "trades_today": 0,
-        "last_date": "2026-10-03"
+        "last_date": "2026-10-04"
     }
 }
