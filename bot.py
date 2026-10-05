@@ -69,11 +69,11 @@ def fetch_candles(symbol, interval, outputsize=500):
     try:
         r = requests.get(url, params=params, timeout=60)
         if r.status_code != 200:
-            print(f"❌ فشل جلب {interval}: {r.status_code} {r.text[:200]}")
+            print(f"فشل جلب {interval}: {r.status_code} {r.text[:200]}")
             return None
         data = r.json()
         if "values" not in data:
-            print(f"❌ Twelve Data error: {data.get('message', 'unknown')}")
+            print(f"Twelve Data error: {data.get('message', 'unknown')}")
             return None
         candles = data["values"]
         df = pd.DataFrame(candles)
@@ -82,16 +82,18 @@ def fetch_candles(symbol, interval, outputsize=500):
         for c in ["open", "high", "low", "close"]:
             df[c] = pd.to_numeric(df[c])
         df = df.sort_values("datetime").reset_index(drop=True)
-        print(f"✅ {interval}: {len(df)} شمعة | آخر: {df.iloc[-1]['close']}")
+        print(f"OK {interval}: {len(df)} شمعة | آخر: {df.iloc[-1]['close']}")
         return df
     except Exception as e:
-        print(f"❌ Fetch {interval} Error: {e}")
+        print(f"Fetch {interval} Error: {e}")
         traceback.print_exc()
         return None
 
 
 def ta_atr(df, period=14):
-    high, low, close = df["high"], df["low"], df["close"]
+    high = df["high"]
+    low = df["low"]
+    close = df["close"]
     tr = pd.concat([high - low, (high - close.shift(1)).abs(), (low - close.shift(1)).abs()], axis=1).max(axis=1)
     return tr.ewm(alpha=1.0/period, adjust=False).mean()
 
@@ -157,23 +159,23 @@ def load_state():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE) as f:
             s = json.load(f)
-            print(f"📖 State: active_trade={'✅' if s.get('active_trade') else '❌'} | trades_today={s.get('trade_count_today', 0)}")
+            print(f"State: active_trade={'YES' if s.get('active_trade') else 'NO'} | trades_today={s.get('trade_count_today', 0)}")
             return s
-    print("📖 State file جديد")
+    print("State file جديد")
     return {"active_trade": None, "last_entry_time": None, "trade_count_today": 0, "last_day": None, "models_done_today": []}
 
 
 def save_state(s):
     with open(STATE_FILE, "w") as f:
         json.dump(s, f, indent=2)
-    print(f"💾 State saved: active_trade={'✅' if s.get('active_trade') else '❌'}")
+    print(f"State saved: active_trade={'YES' if s.get('active_trade') else 'NO'}")
 
 
 def manage_trade(state, current_price, now_utc):
-    print(f"   [manage_trade] بدء...")
+    print(f"[manage_trade] بدء...")
     t = state["active_trade"]
     if t is None:
-        print(f"   [manage_trade] لا صفقة نشطة")
+        print(f"[manage_trade] لا صفقة نشطة")
         return
 
     d = t["direction"]
@@ -183,7 +185,7 @@ def manage_trade(state, current_price, now_utc):
     tp2 = t["tp2"]
     tp3 = t["tp3"]
     time_str = fmt_mosul(now_utc)
-    print(f"   [manage_trade] {t.get('model')} {d} @ {e} | SL={sl} TP1={tp1} TP2={tp2} TP3={tp3}")
+    print(f"[manage_trade] {t.get('model')} {d} @ {e} | SL={sl} TP1={tp1} TP2={tp2} TP3={tp3}")
 
     entry_time_str = t.get("entry_time")
     if entry_time_str:
@@ -194,31 +196,31 @@ def manage_trade(state, current_price, now_utc):
             if bars_elapsed >= MAX_BARS_TRADE:
                 pnl_pts = (e - current_price) if d == "SELL" else (current_price - e)
                 pnl_pts *= MULT
-                send_telegram(f"⏰ خروج بالوقت (60 شمعة)\n{t['model']} {d}\n{e}\nPnL: {pnl_pts:+.2f} pts\n{time_str}")
+                send_telegram(f"خروج بالوقت (60 شمعة)\n{t['model']} {d}\n{e}\nPnL: {pnl_pts:+.2f} pts\n{time_str}")
                 state["active_trade"] = None
                 return
         except Exception as e2:
-            print(f"   [manage_trade] ⚠️ Time error: {e2}")
+            print(f"[manage_trade] Time error: {e2}")
 
     if (d == "BUY" and current_price <= sl) or (d == "SELL" and current_price >= sl):
         if t["tp1_hit"]:
-            send_telegram(f"⚖️ ضرب الستوب بعد TP1 (BE)\n{t['model']} {d}\n{e} | {time_str}")
+            send_telegram(f"ضرب الستوب بعد TP1 (BE)\n{t['model']} {d}\n{e} | {time_str}")
         else:
-            send_telegram(f"🛑 ضرب الستوب!\n{t['model']} {d}\n{e}\n{time_str}")
+            send_telegram(f"ضرب الستوب!\n{t['model']} {d}\n{e}\n{time_str}")
         state["active_trade"] = None
         return
 
     if not t["tp1_hit"] and ((d == "BUY" and current_price >= tp1) or (d == "SELL" and current_price <= tp1)):
         t["tp1_hit"] = True
-        send_telegram(f"🎯 الهدف الأول!\n{t['model']} {d}\nTP1: {tp1}\n{time_str}")
+        send_telegram(f"الهدف الأول!\n{t['model']} {d}\nTP1: {tp1}\n{time_str}")
 
     if t["tp1_hit"] and not t["tp2_hit"] and ((d == "BUY" and current_price >= tp2) or (d == "SELL" and current_price <= tp2)):
         t["tp2_hit"] = True
-        send_telegram(f"🎯🎯 الهدف الثاني!\n{t['model']}\nTP2: {tp2}\n{time_str}")
+        send_telegram(f"الهدف الثاني!\n{t['model']}\nTP2: {tp2}\n{time_str}")
 
     if t["tp2_hit"] and not t["tp3_hit"] and ((d == "BUY" and current_price >= tp3) or (d == "SELL" and current_price <= tp3)):
         t["tp3_hit"] = True
-        send_telegram(f"🎯🎯🎯 الهدف الثالث! دبچة 🕺\n{t['model']}\nTP3: {tp3}\n{time_str}")
+        send_telegram(f"الهدف الثالث! دبچة\n{t['model']}\nTP3: {tp3}\n{time_str}")
         state["active_trade"] = None
 
 
@@ -563,7 +565,7 @@ def build_context(df):
 
 
 def check_signal(df5, df1h, state, now_utc, now_ny):
-    print("   [check_signal] بدء...")
+    print("[check_signal] بدء...")
     try:
         ctx = build_context(df5)
         i = len(df5) - 1
@@ -579,7 +581,7 @@ def check_signal(df5, df1h, state, now_utc, now_ny):
         trend_down = h1["close"] < h1["ema200"] if not pd.isna(h1["ema200"]) else False
         strong_bull = trend_up and (not pd.isna(h1["ema50"])) and h1["close"] > h1["ema50"]
         strong_bear = trend_down and (not pd.isna(h1["ema50"])) and h1["close"] < h1["ema50"]
-        print(f"   [check_signal] H1: Trend={'UP' if trend_up else 'DOWN' if trend_down else 'NONE'}")
+        print(f"[check_signal] H1: Trend={'UP' if trend_up else 'DOWN' if trend_down else 'NONE'}")
 
         sessions = session_flags(now_ny)
         any_kz = any([
@@ -591,7 +593,7 @@ def check_signal(df5, df1h, state, now_utc, now_ny):
         sessOK = any_kz and not is_blackout(now_ny)
 
         if not sessOK:
-            print(f"   [check_signal] ❌ لا جلسة نشطة")
+            print(f"[check_signal] لا جلسة نشطة")
             return None
 
         if state["trade_count_today"] >= MAX_TRADES_PER_DAY:
@@ -682,38 +684,64 @@ def check_signal(df5, df1h, state, now_utc, now_ny):
 
         sigL = s1L or s2L or s3L or s4L or s5L or s6L or s7L or s10L or s11L or s17L or s18L or s20L or s22L or s24L or s26L or s27L or s29L or s30L or s32L or s33L or s35L or s36L or s37L or tcpL or fvgL or bosL
         sigS = s1S or s2S or s3S or s4S or s5S or s6S or s7S or s10S or s11S or s17S or s18S or s20S or s22S or s24S or s26S or s27S or s29S or s30S or s32S or s33S or s35S or s36S or s37S or tcpS or fvgS or bosS
-        print(f"   [check_signal] sigL={sigL} sigS={sigS}")
+        print(f"[check_signal] sigL={sigL} sigS={sigS}")
 
         if not (sigL or sigS):
             return None
 
         model = "Unknown"
-        if s1L or s1S: model = "SB-LDN"
-        elif s2L or s2S: model = "Judas"
-        elif s3L or s3S: model = "SB-AM"
-        elif s4L or s4S: model = "2022-AM"
-        elif s5L or s5S: model = "Lunch"
-        elif s6L or s6S: model = "SB-PM"
-        elif s7L or s7S: model = "MOC"
-        elif s10L or s10S: model = "NY-Open"
-        elif s11L or s11S: model = "FOMC"
-        elif s17L or s17S: model = "OB"
-        elif s18L or s18S: model = "Prop"
-        elif s20L or s20S: model = "Mitig"
-        elif s22L or s22S: model = "EQL"
-        elif s24L or s24S: model = "Shallow"
-        elif s26L or s26S: model = "Float"
-        elif s27L or s27S: model = "NDOG"
-        elif s29L or s29S: model = "ORG"
-        elif s30L or s30S: model = "BPR"
-        elif s32L or s32S: model = "Reject"
-        elif s33L or s33S: model = "Void"
-        elif s35L or s35S: model = "TGIF"
-        elif s36L or s36S: model = "Quarter"
-        elif s37L or s37S: model = "P3"
-        elif tcpL or tcpS: model = "TCP"
-        elif fvgL or fvgS: model = "FVG"
-        elif bosL or bosS: model = "BOS"
+        if s1L or s1S:
+            model = "SB-LDN"
+        elif s2L or s2S:
+            model = "Judas"
+        elif s3L or s3S:
+            model = "SB-AM"
+        elif s4L or s4S:
+            model = "2022-AM"
+        elif s5L or s5S:
+            model = "Lunch"
+        elif s6L or s6S:
+            model = "SB-PM"
+        elif s7L or s7S:
+            model = "MOC"
+        elif s10L or s10S:
+            model = "NY-Open"
+        elif s11L or s11S:
+            model = "FOMC"
+        elif s17L or s17S:
+            model = "OB"
+        elif s18L or s18S:
+            model = "Prop"
+        elif s20L or s20S:
+            model = "Mitig"
+        elif s22L or s22S:
+            model = "EQL"
+        elif s24L or s24S:
+            model = "Shallow"
+        elif s26L or s26S:
+            model = "Float"
+        elif s27L or s27S:
+            model = "NDOG"
+        elif s29L or s29S:
+            model = "ORG"
+        elif s30L or s30S:
+            model = "BPR"
+        elif s32L or s32S:
+            model = "Reject"
+        elif s33L or s33S:
+            model = "Void"
+        elif s35L or s35S:
+            model = "TGIF"
+        elif s36L or s36S:
+            model = "Quarter"
+        elif s37L or s37S:
+            model = "P3"
+        elif tcpL or tcpS:
+            model = "TCP"
+        elif fvgL or fvgS:
+            model = "FVG"
+        elif bosL or bosS:
+            model = "BOS"
 
         close = df5["close"].iloc[i]
         if sigL:
@@ -759,17 +787,17 @@ def check_signal(df5, df1h, state, now_utc, now_ny):
             tp1 = entry - sl_dist * TP1_R
             tp2 = entry - sl_dist * TP2_R
             tp3 = entry - sl_dist * TP3_R
-        print(f"   [check_signal] ✅ {direction} {model} @ {entry}")
+        print(f"[check_signal] {direction} {model} @ {entry}")
         return {"model": model, "direction": direction, "entry": round(entry, 2), "sl": round(sl_level, 2),
                 "tp1": round(tp1, 2), "tp2": round(tp2, 2), "tp3": round(tp3, 2)}
     except Exception as e:
-        print(f"   [check_signal] ❌ Exception: {e}")
+        print(f"[check_signal] Exception: {e}")
         traceback.print_exc()
         return None
 
 
 def main():
-    print("🤖 MSNR Bot Scan — بدء...")
+    print("MSNR Bot Scan — بدء...")
     try:
         state = load_state()
         now_utc = datetime.now(ZoneInfo("UTC"))
@@ -777,7 +805,7 @@ def main():
 
         if now_ny.weekday() >= 5:
             day_name = "السبت" if now_ny.weekday() == 5 else "الأحد"
-            print(f"📅 الويكند ({day_name}) — البوت معطّل")
+            print(f"الويكند ({day_name}) — البوت معطّل")
             save_state(state)
             return
 
@@ -787,54 +815,54 @@ def main():
             state["models_done_today"] = []
             state["last_day"] = today
 
-        print("📌 جلب M5...")
+        print("جلب M5...")
         df5 = fetch_candles(SYMBOL, "5min", 500)
-        print("📌 جلب H1...")
+        print("جلب H1...")
         df1h = fetch_candles(SYMBOL, "1h", 500)
 
         if df5 is None or df1h is None:
-            send_telegram("❌ فشل جلب البيانات من Twelve Data")
+            send_telegram("فشل جلب البيانات من Twelve Data")
             save_state(state)
             return
 
         last_candle_time = df5.iloc[-1]["datetime"]
         minutes_old = (now_utc - last_candle_time).total_seconds() / 60
-        print(f"⏱️ عمر آخر شمعة: {minutes_old:.1f} دقيقة")
+        print(f"عمر آخر شمعة: {minutes_old:.1f} دقيقة")
         if minutes_old > STALE_DATA_MINUTES:
-            print(f"⚠️ البيانات قديمة ({minutes_old:.0f} دقيقة) — تخطي")
+            print(f"البيانات قديمة ({minutes_old:.0f} دقيقة) — تخطي")
             save_state(state)
             return
 
         price = float(df5.iloc[-1]["close"])
-        print(f"💰 السعر: {price} | Mosul: {fmt_mosul(now_utc)} | NY: {now_ny.strftime('%H:%M')}")
+        print(f"السعر: {price} | Mosul: {fmt_mosul(now_utc)} | NY: {now_ny.strftime('%H:%M')}")
 
         if state["active_trade"] is not None:
-            print("📌 إدارة صفقة نشطة...")
+            print("إدارة صفقة نشطة...")
             manage_trade(state, price, now_utc)
             save_state(state)
-            print("✅ انتهى — تم إدارة الصفقة")
+            print("انتهى — تم إدارة الصفقة")
             return
 
-        print("📌 فحص إشارة...")
+        print("فحص إشارة...")
         sig = check_signal(df5, df1h, state, now_utc, now_ny)
         if sig is None:
-            print("✅ انتهى — لا إشارة")
+            print("انتهى — لا إشارة")
             save_state(state)
             return
 
         model = sig["model"]
         if model in state["models_done_today"]:
-            print(f"   [main] ⏭️ {model} مضروب اليوم — تخطي")
+            print(f"[main] {model} مضروب اليوم — تخطي")
             save_state(state)
             return
 
-        print("📌 إشارة موجودة، إرسال...")
+        print("إشارة موجودة، إرسال...")
         state["active_trade"] = {**sig, "tp1_hit": False, "tp2_hit": False, "tp3_hit": False, "entry_time": now_utc.isoformat()}
         state["trade_count_today"] += 1
         state["last_entry_time"] = now_utc.isoformat()
         state["models_done_today"].append(model)
         send_telegram(
-            f"🚀 صفقة جديدة!\n\n"
+            f"صفقة جديدة!\n\n"
             f"النموذج: {sig['model']}\n"
             f"الاتجاه: {sig['direction']}\n"
             f"الدخول: {sig['entry']}\n"
@@ -845,12 +873,12 @@ def main():
             f"الوقت: {fmt_mosul(now_utc)} (الموصل)"
         )
         save_state(state)
-        print("✅ إشارة مرسلة")
+        print("إشارة مرسلة")
     except Exception as e:
-        print(f"❌❌❌ خطأ في main: {e}")
+        print(f"خطأ في main: {e}")
         traceback.print_exc()
         try:
-            send_telegram(f"❌ MSNR Bot Scan خطأ: {e}")
+            send_telegram(f"MSNR Bot Scan خطأ: {e}")
         except:
             pass
 
