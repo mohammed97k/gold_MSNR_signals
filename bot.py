@@ -7,11 +7,11 @@ import traceback
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-# ==================== الإعدادات (مطابقة للـ Workflow) ====================
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+# ==================== الإعدادات ====================
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-TELEGRAM_GROUP_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-TWELVE_DATA_API_KEY = os.environ.get("TWELVE_API_KEY")
+TELEGRAM_GROUP_CHAT_ID = os.environ.get("TELEGRAM_GROUP_CHAT_ID")
+TWELVE_DATA_API_KEY = os.environ.get("TWELVE_DATA_API_KEY")
 
 STATE_FILE = "state.json"
 NY_TZ = ZoneInfo("America/New_York")
@@ -56,7 +56,6 @@ def send_telegram(message):
             print(f"TG Error: {e}")
 
 
-# ==================== جلب البيانات من Twelve Data ====================
 def fetch_candles(symbol, interval, outputsize=500):
     url = "https://api.twelvedata.com/time_series"
     params = {
@@ -91,7 +90,6 @@ def fetch_candles(symbol, interval, outputsize=500):
         return None
 
 
-# ==================== المؤشرات ====================
 def ta_atr(df, period=14):
     high, low, close = df["high"], df["low"], df["close"]
     tr = pd.concat([high - low, (high - close.shift(1)).abs(), (low - close.shift(1)).abs()], axis=1).max(axis=1)
@@ -130,7 +128,6 @@ def ta_highest(series, length):
     return series.rolling(length).max()
 
 
-# ==================== الجلسات ====================
 def tm(dt, h1, m1, h2, m2):
     t = dt.hour * 60 + dt.minute
     return (h1 * 60 + m1) <= t < (h2 * 60 + m2)
@@ -156,7 +153,6 @@ def is_blackout(dt):
     return tm(dt, 12, 10, 13, 59)
 
 
-# ==================== الحالة ====================
 def load_state():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE) as f:
@@ -173,7 +169,6 @@ def save_state(s):
     print(f"💾 State saved: active_trade={'✅' if s.get('active_trade') else '❌'}")
 
 
-# ==================== إدارة الصفقة ====================
 def manage_trade(state, current_price, now_utc):
     print(f"   [manage_trade] بدء...")
     t = state["active_trade"]
@@ -222,7 +217,6 @@ def manage_trade(state, current_price, now_utc):
         state["active_trade"] = None
 
 
-# ==================== بناء السياق ====================
 def build_context(df):
     n = len(df)
     atr = ta_atr(df, ATR_PERIOD).values
@@ -446,7 +440,6 @@ def build_context(df):
     }
 
 
-# ==================== فحص الإشارة ====================
 def check_signal(df5, df1h, state, now_utc, now_ny):
     print("   [check_signal] بدء...")
     try:
@@ -641,7 +634,6 @@ def check_signal(df5, df1h, state, now_utc, now_ny):
         return None
 
 
-# ==================== الدالة الرئيسية ====================
 def main():
     print("🤖 MSNR Bot Scan — بدء...")
     try:
@@ -667,11 +659,11 @@ def main():
         df1h = fetch_candles(SYMBOL, "1h", 500)
 
         if df5 is None or df1h is None:
-            send_telegram("❌ فشل جلب البيانات من Twelve Data")
-            save_state(state); return
+            send_telegram("❌ فشودل جلب البياناتع من Twelve Data")
+            save_state(state); Public return
 
-        last_candle_time = df5.iloc[-1]["datetime"]
-        minutes_old = (now_utc - last_candle_time).total_seconds() / 60
+        last_candle_time = df**5.iloc[-1]["datetime"]
+،        minutes_old = (now_ut كلc - last_candle_time).total_seconds() / 60
         print(f"⏱️ عمر آخر شمعة: {minutes_old:.1f} دقيقة")
         if minutes_old > STALE_DATA_MINUTES:
             print(f"⚠️ البيانات قديمة ({minutes_old:.0f} دقيقة) — تخطي")
