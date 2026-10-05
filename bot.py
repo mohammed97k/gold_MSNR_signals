@@ -7,11 +7,11 @@ import traceback
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-# ==================== الإعدادات ====================
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+# ==================== الإعدادات (مطابقة للـ Workflow) ====================
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-TELEGRAM_GROUP_CHAT_ID = os.environ.get("TELEGRAM_GROUP_CHAT_ID")
-TWELVE_DATA_API_KEY = os.environ.get("TWELVE_DATA_API_KEY")
+TELEGRAM_GROUP_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+TWELVE_DATA_API_KEY = os.environ.get("TWELVE_API_KEY")
 
 STATE_FILE = "state.json"
 NY_TZ = ZoneInfo("America/New_York")
@@ -41,12 +41,10 @@ BRK_EXPIRY = 20
 STALE_DATA_MINUTES = 45
 
 
-# ==================== تنسيق الوقت ====================
 def fmt_mosul(dt_utc):
     return dt_utc.astimezone(MOSUL_TZ).strftime('%I:%M %p')
 
 
-# ==================== تيليجرام ====================
 def send_telegram(message):
     chat_ids = [c for c in [TELEGRAM_CHAT_ID, TELEGRAM_GROUP_CHAT_ID] if c]
     for chat_id in chat_ids:
@@ -187,7 +185,6 @@ def manage_trade(state, current_price, now_utc):
     time_str = fmt_mosul(now_utc)
     print(f"   [manage_trade] {t.get('model')} {d} @ {e} | SL={sl} TP1={tp1} TP2={tp2} TP3={tp3}")
 
-    # Time Exit (60 شمعة × 5 دقائق = 5 ساعات)
     entry_time_str = t.get("entry_time")
     if entry_time_str:
         try:
@@ -203,7 +200,6 @@ def manage_trade(state, current_price, now_utc):
         except Exception as e2:
             print(f"   [manage_trade] ⚠️ Time error: {e2}")
 
-    # Stop Loss
     if (d == "BUY" and current_price <= sl) or (d == "SELL" and current_price >= sl):
         if t["tp1_hit"]:
             send_telegram(f"⚖️ ضرب الستوب بعد TP1 (BE)\n{t['model']} {d}\n{e} | {time_str}")
@@ -212,7 +208,6 @@ def manage_trade(state, current_price, now_utc):
         state["active_trade"] = None
         return
 
-    # Targets
     if not t["tp1_hit"] and ((d == "BUY" and current_price >= tp1) or (d == "SELL" and current_price <= tp1)):
         t["tp1_hit"] = True
         send_telegram(f"🎯 الهدف الأول!\n{t['model']} {d}\nTP1: {tp1}\n{time_str}")
@@ -379,7 +374,6 @@ def build_context(df):
     mitBull = bBrkActive & (c < o) & (l <= bBrkCE) & (l >= bBrkLow)
     mitBear = sBrkActive & (c > o) & (h >= sBrkCE) & (h <= sBrkHigh)
 
-    # Power of 3 (Asia High/Low من الشمعة اليومية السابقة)
     df_copy = df.copy()
     df_copy["date_ny"] = df_copy["datetime"].dt.tz_convert(NY_TZ).dt.date
     df_copy["high_d"] = df_copy.groupby("date_ny")["high"].transform("max")
@@ -398,7 +392,6 @@ def build_context(df):
 
     q4 = (df["datetime"].dt.month >= 10).values
 
-    # NDOG / ORG
     ndogCE = np.full(n, np.nan); orgCE = np.full(n, np.nan)
     df_ny = df["datetime"].dt.tz_convert(NY_TZ)
     for i in range(n):
@@ -461,7 +454,6 @@ def check_signal(df5, df1h, state, now_utc, now_ny):
         i = len(df5) - 1
         atr = ctx["atr"][i]
         if np.isnan(atr):
-            print("   [check_signal] ATR NaN")
             return None
 
         df1h = df1h.copy()
@@ -472,7 +464,7 @@ def check_signal(df5, df1h, state, now_utc, now_ny):
         trend_down = h1["close"] < h1["ema200"] if not pd.isna(h1["ema200"]) else False
         strong_bull = trend_up and (not pd.isna(h1["ema50"])) and h1["close"] > h1["ema50"]
         strong_bear = trend_down and (not pd.isna(h1["ema50"])) and h1["close"] < h1["ema50"]
-        print(f"   [check_signal] H1: Close={h1['close']:.2f} EMA200={h1['ema200']:.2f} Trend={'UP' if trend_up else 'DOWN' if trend_down else 'NONE'}")
+        print(f"   [check_signal] H1: Trend={'UP' if trend_up else 'DOWN' if trend_down else 'NONE'}")
 
         sessions = session_flags(now_ny)
         any_kz = any([
@@ -484,12 +476,10 @@ def check_signal(df5, df1h, state, now_utc, now_ny):
         sessOK = any_kz and not is_blackout(now_ny)
 
         if not sessOK:
-            active_names = [k for k, v in sessions.items() if v]
-            print(f"   [check_signal] ❌ sessOK=False (sessions: {active_names})")
+            print(f"   [check_signal] ❌ لا جلسة نشطة")
             return None
 
         if state["trade_count_today"] >= MAX_TRADES_PER_DAY:
-            print(f"   [check_signal] ❌ Max/Day")
             return None
 
         if state["last_entry_time"]:
@@ -497,7 +487,6 @@ def check_signal(df5, df1h, state, now_utc, now_ny):
             bars_since = int((now_utc - last_dt).total_seconds() / 300)
             cd = COOLDOWN_STRONG if (strong_bull or strong_bear) else COOLDOWN_NORMAL
             if bars_since <= cd:
-                print(f"   [check_signal] ❌ Cooldown {bars_since}/{cd}")
                 return None
 
         canEnter = True
@@ -581,7 +570,6 @@ def check_signal(df5, df1h, state, now_utc, now_ny):
         print(f"   [check_signal] sigL={sigL} sigS={sigS}")
 
         if not (sigL or sigS):
-            print(f"   [check_signal] ❌ لا إشارة")
             return None
 
         model = "Unknown"
@@ -638,7 +626,6 @@ def check_signal(df5, df1h, state, now_utc, now_ny):
             return None
         sl_pts = abs(entry - sl_level) * MULT
         if sl_pts < MIN_SL_PTS or sl_pts > MAX_SL_PTS:
-            print(f"   [check_signal] ❌ SL pts = {sl_pts:.1f}")
             return None
         sl_dist = abs(entry - sl_level)
         if direction == "BUY":
@@ -662,7 +649,6 @@ def main():
         now_utc = datetime.now(ZoneInfo("UTC"))
         now_ny = now_utc.astimezone(NY_TZ)
 
-        # فحص الويكند
         if now_ny.weekday() >= 5:
             day_name = "السبت" if now_ny.weekday() == 5 else "الأحد"
             print(f"📅 الويكند ({day_name}) — البوت معطّل")
@@ -684,7 +670,6 @@ def main():
             send_telegram("❌ فشل جلب البيانات من Twelve Data")
             save_state(state); return
 
-        # فحص البيانات القديمة
         last_candle_time = df5.iloc[-1]["datetime"]
         minutes_old = (now_utc - last_candle_time).total_seconds() / 60
         print(f"⏱️ عمر آخر شمعة: {minutes_old:.1f} دقيقة")
@@ -696,7 +681,6 @@ def main():
         price = float(df5.iloc[-1]["close"])
         print(f"💰 السعر: {price} | Mosul: {fmt_mosul(now_utc)} | NY: {now_ny.strftime('%H:%M')}")
 
-        # إدارة صفقة نشطة
         if state["active_trade"] is not None:
             print("📌 إدارة صفقة نشطة...")
             manage_trade(state, price, now_utc)
@@ -704,7 +688,6 @@ def main():
             print("✅ انتهى — تم إدارة الصفقة")
             return
 
-        # فحص إشارة جديدة
         print("📌 فحص إشارة...")
         sig = check_signal(df5, df1h, state, now_utc, now_ny)
         if sig is None:
