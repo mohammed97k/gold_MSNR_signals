@@ -1,43 +1,7 @@
 {
-    "GBPUSD": {
-        "active_trade": {
-            "side": "sell",
-            "entry": 1.324725,
-            "sl": 1.32591,
-            "tp": 1.318725,
-            "rr": 5.063291139240542,
-            "entry_time": "12:19 AM"
-        },
-        "trades_today": 0,
-        "last_date": "2026-10-05"
-    },
-    "USDJPY": {
-        "active_trade": {
-            "side": "buy",
-            "entry": 157.937505,
-            "sl": 157.687505,
-            "tp": 158.13750499999998,
-            "rr": 0.8,
-            "entry_time": "06:10 PM"
-        },
-        "trades_today": 1,
-        "last_date": "2026-10-05"
-    },
-    "AUDUSD": {
-        "active_trade": null,
-        "trades_today": 1,
-        "last_date": "2026-10-05"
-    },
-    "USDCAD": {
-        "active_trade": {
-            "side": "buy",
-            "entry": 1.4244949999999998,
-            "sl": 1.423695,
-            "tp": 1.42693,
-            "rr": 3.0437500000002338,
-            "entry_time": "06:10 PM"
-        },
-        "trades_today": 1,
-        "last_date": "2026-10-05"
-    }
+  "active_trade": null,
+  "last_entry_time": null,
+  "trade_count_today": 0,
+  "last_day": null,
+  "models_done_today": []
 }
