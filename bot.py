@@ -8,20 +8,17 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 # ==================== الإعدادات ====================
-TICKERALL_API_KEY = os.environ.get("TICKERALL_API_KEY")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 TELEGRAM_GROUP_CHAT_ID = os.environ.get("TELEGRAM_GROUP_CHAT_ID")
-MT5_PASSWORD = os.environ.get("MT5_PASSWORD")
-MT5_SERVER = os.environ.get("MT5_SERVER")
-MT5_ACCOUNT = os.environ.get("MT5_ACCOUNT")
+TWELVE_DATA_API_KEY = os.environ.get("TWELVE_DATA_API_KEY")
 
 STATE_FILE = "state.json"
 NY_TZ = ZoneInfo("America/New_York")
 MOSUL_TZ = ZoneInfo("Asia/Baghdad")
-BASE_URL = "https://api.tickerall.com"
+SYMBOL = "XAU/USD"
 
-# ==================== الثوابت (مطابقة لـ Pine) ====================
+# ==================== الثوابت ====================
 MULT = 10.0
 ATR_PERIOD = 14
 MIN_SL_PTS = 40.0
@@ -33,7 +30,6 @@ MAX_BARS_TRADE = 60
 TP1_R = 1.0
 TP2_R = 2.0
 TP3_R = 3.0
-SYMBOL = "XAUUSD#"
 PIVOT_LEFT = 3
 PIVOT_RIGHT = 3
 SWEEP_LB = 20
@@ -42,13 +38,15 @@ OB_EXPIRY = 15
 MSS_EXPIRY = 15
 SWEEP_EXPIRY = 20
 BRK_EXPIRY = 20
-STALE_DATA_MINUTES = 30  # ⬅️ جديد: حد أقصى لعمر الشمعة
+STALE_DATA_MINUTES = 45
 
 
+# ==================== تنسيق الوقت ====================
 def fmt_mosul(dt_utc):
     return dt_utc.astimezone(MOSUL_TZ).strftime('%I:%M %p')
 
 
+# ==================== تيليجرام ====================
 def send_telegram(message):
     chat_ids = [c for c in [TELEGRAM_CHAT_ID, TELEGRAM_GROUP_CHAT_ID] if c]
     for chat_id in chat_ids:
@@ -60,57 +58,42 @@ def send_telegram(message):
             print(f"TG Error: {e}")
 
 
-def open_session():
-    url = f"{BASE_URL}/v1/sessions"
-    headers = {"Authorization": f"Bearer {TICKERALL_API_KEY}", "Content-Type": "application/json"}
-    payload = {
-        "broker": "mt5",
-        "server": MT5_SERVER,
-        "account": int(MT5_ACCOUNT) if MT5_ACCOUNT and MT5_ACCOUNT.isdigit() else MT5_ACCOUNT,
-        "password": MT5_PASSWORD
+# ==================== جلب البيانات من Twelve Data ====================
+def fetch_candles(symbol, interval, outputsize=500):
+    url = "https://api.twelvedata.com/time_series"
+    params = {
+        "symbol": symbol,
+        "interval": interval,
+        "outputsize": outputsize,
+        "apikey": TWELVE_DATA_API_KEY,
+        "format": "JSON",
+        "timezone": "UTC"
     }
     try:
-        r = requests.post(url, headers=headers, json=payload, timeout=30)
-        if r.status_code == 200:
-            account_id = r.json().get("accountId")
-            print(f"✅ Session opened: {account_id}")
-            return account_id
-        else:
-            print(f"❌ فشل فتح الجلسة: {r.status_code} {r.text[:300]}")
-            return None
-    except Exception as e:
-        print(f"❌ Session Error: {e}")
-        return None
-
-
-def fetch_candles(account_id, symbol, timeframe, limit=500, hours=500):
-    url = f"{BASE_URL}/v1/accounts/{account_id}/candles"
-    headers = {"Authorization": f"Bearer {TICKERALL_API_KEY}"}
-    params = {"symbol": symbol, "timeframe": timeframe, "limit": limit, "hours": hours}
-    try:
-        r = requests.get(url, headers=headers, params=params, timeout=90)
+        r = requests.get(url, params=params, timeout=60)
         if r.status_code != 200:
-            print(f"❌ فشل جلب {timeframe}: {r.status_code} {r.text[:200]}")
+            print(f"❌ فشل جلب {interval}: {r.status_code} {r.text[:200]}")
             return None
         data = r.json()
-        candles = data.get("candles", [])
-        if not candles:
-            print(f"❌ لا شمعات في الرد لـ {timeframe}")
+        if "values" not in data:
+            print(f"❌ Twelve Data error: {data.get('message', 'unknown')}")
             return None
+        candles = data["values"]
         df = pd.DataFrame(candles)
-        df["datetime"] = pd.to_datetime(df["timestamp"], unit="s", utc=True)
+        df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
         df = df[["datetime", "open", "high", "low", "close"]].copy()
         for c in ["open", "high", "low", "close"]:
             df[c] = pd.to_numeric(df[c])
         df = df.sort_values("datetime").reset_index(drop=True)
-        print(f"✅ {timeframe}: {len(df)} شمعة | آخر: {df.iloc[-1]['close']}")
+        print(f"✅ {interval}: {len(df)} شمعة | آخر: {df.iloc[-1]['close']}")
         return df
     except Exception as e:
-        print(f"❌ Fetch {timeframe} Error: {e}")
+        print(f"❌ Fetch {interval} Error: {e}")
         traceback.print_exc()
         return None
 
 
+# ==================== المؤشرات ====================
 def ta_atr(df, period=14):
     high, low, close = df["high"], df["low"], df["close"]
     tr = pd.concat([high - low, (high - close.shift(1)).abs(), (low - close.shift(1)).abs()], axis=1).max(axis=1)
@@ -149,6 +132,7 @@ def ta_highest(series, length):
     return series.rolling(length).max()
 
 
+# ==================== الجلسات ====================
 def tm(dt, h1, m1, h2, m2):
     t = dt.hour * 60 + dt.minute
     return (h1 * 60 + m1) <= t < (h2 * 60 + m2)
@@ -174,11 +158,12 @@ def is_blackout(dt):
     return tm(dt, 12, 10, 13, 59)
 
 
+# ==================== الحالة ====================
 def load_state():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE) as f:
             s = json.load(f)
-            print(f"📖 State loaded: active_trade={'✅' if s.get('active_trade') else '❌'} | trades_today={s.get('trade_count_today', 0)}")
+            print(f"📖 State: active_trade={'✅' if s.get('active_trade') else '❌'} | trades_today={s.get('trade_count_today', 0)}")
             return s
     print("📖 State file جديد")
     return {"active_trade": None, "last_entry_time": None, "trade_count_today": 0, "last_day": None, "models_done_today": []}
@@ -190,26 +175,25 @@ def save_state(s):
     print(f"💾 State saved: active_trade={'✅' if s.get('active_trade') else '❌'}")
 
 
+# ==================== إدارة الصفقة ====================
 def manage_trade(state, current_price, now_utc):
     print(f"   [manage_trade] بدء...")
     t = state["active_trade"]
     if t is None:
         print(f"   [manage_trade] لا صفقة نشطة")
         return
-    
+
     d, e, sl, tp1, tp2, tp3 = t["direction"], t["entry"], t["sl"], t["tp1"], t["tp2"], t["tp3"]
     time_str = fmt_mosul(now_utc)
     print(f"   [manage_trade] {t.get('model')} {d} @ {e} | SL={sl} TP1={tp1} TP2={tp2} TP3={tp3}")
-    print(f"   [manage_trade] hit: TP1={t.get('tp1_hit')} TP2={t.get('tp2_hit')} TP3={t.get('tp3_hit')}")
 
-    # TIME-BASED EXIT
+    # Time Exit (60 شمعة × 5 دقائق = 5 ساعات)
     entry_time_str = t.get("entry_time")
     if entry_time_str:
         try:
             entry_dt = datetime.fromisoformat(entry_time_str)
             elapsed = (now_utc - entry_dt).total_seconds()
             bars_elapsed = elapsed / 300
-            print(f"   [manage_trade] Bars: {bars_elapsed:.1f}/{MAX_BARS_TRADE}")
             if bars_elapsed >= MAX_BARS_TRADE:
                 pnl_pts = (e - current_price) if d == "SELL" else (current_price - e)
                 pnl_pts *= MULT
@@ -219,7 +203,7 @@ def manage_trade(state, current_price, now_utc):
         except Exception as e2:
             print(f"   [manage_trade] ⚠️ Time error: {e2}")
 
-    # STOP LOSS
+    # Stop Loss
     if (d == "BUY" and current_price <= sl) or (d == "SELL" and current_price >= sl):
         if t["tp1_hit"]:
             send_telegram(f"⚖️ ضرب الستوب بعد TP1 (BE)\n{t['model']} {d}\n{e} | {time_str}")
@@ -228,7 +212,7 @@ def manage_trade(state, current_price, now_utc):
         state["active_trade"] = None
         return
 
-    # TARGETS
+    # Targets
     if not t["tp1_hit"] and ((d == "BUY" and current_price >= tp1) or (d == "SELL" and current_price <= tp1)):
         t["tp1_hit"] = True
         send_telegram(f"🎯 الهدف الأول!\n{t['model']} {d}\nTP1: {tp1}\n{time_str}")
@@ -243,6 +227,7 @@ def manage_trade(state, current_price, now_utc):
         state["active_trade"] = None
 
 
+# ==================== بناء السياق ====================
 def build_context(df):
     n = len(df)
     atr = ta_atr(df, ATR_PERIOD).values
@@ -258,25 +243,20 @@ def build_context(df):
         last_sh[i] = cur_sh
         last_sl[i] = cur_sl
 
-    # prevSwingHigh / prevSwingLow (لحساب EQH/EQL)
     prev_sh = np.full(n, np.nan)
     prev_sl = np.full(n, np.nan)
     psh, psl = np.nan, np.nan
-    sh_seen = np.nan
-    sl_seen = np.nan
+    sh_seen, sl_seen = np.nan, np.nan
     for i in range(n):
         if not np.isnan(sh[i]):
-            if not np.isnan(sh_seen):
-                psh = sh_seen
+            if not np.isnan(sh_seen): psh = sh_seen
             sh_seen = sh[i]
         if not np.isnan(sl[i]):
-            if not np.isnan(sl_seen):
-                psl = sl_seen
+            if not np.isnan(sl_seen): psl = sl_seen
             sl_seen = sl[i]
         prev_sh[i] = psh
         prev_sl[i] = psl
 
-    # SWEEP
     recent_low = ta_lowest(df["low"], SWEEP_LB).shift(1).values
     recent_high = ta_highest(df["high"], SWEEP_LB).shift(1).values
     bull_sweep = (df["low"].values < recent_low) & (df["close"].values > recent_low)
@@ -294,23 +274,18 @@ def build_context(df):
         bull_sweep_ok[i], bull_sweep_low[i] = cbok, cbbl
         bear_sweep_ok[i], bear_sweep_high[i] = cek, cebh
 
-    # SHALLOW RUN
     tick = 0.01
     shallowBull = (df["low"].values < recent_low) & (df["low"].values > (recent_low - 3 * tick)) & (df["close"].values > recent_low)
     shallowBear = (df["high"].values > recent_high) & (df["high"].values < (recent_high + 3 * tick)) & (df["close"].values < recent_high)
 
-    # EQL / EQH
     eq_tol = atr * 0.1
     eqHighs = np.zeros(n, dtype=bool); eqLows = np.zeros(n, dtype=bool)
     for i in range(n):
         if not np.isnan(prev_sh[i]) and not np.isnan(last_sh[i]):
-            if abs(prev_sh[i] - last_sh[i]) < eq_tol[i]:
-                eqHighs[i] = True
+            if abs(prev_sh[i] - last_sh[i]) < eq_tol[i]: eqHighs[i] = True
         if not np.isnan(prev_sl[i]) and not np.isnan(last_sl[i]):
-            if abs(prev_sl[i] - last_sl[i]) < eq_tol[i]:
-                eqLows[i] = True
+            if abs(prev_sl[i] - last_sl[i]) < eq_tol[i]: eqLows[i] = True
 
-    # MSS
     bull_mss = np.zeros(n, dtype=bool); bull_mss_bar = np.full(n, -1, dtype=int)
     bear_mss = np.zeros(n, dtype=bool); bear_mss_bar = np.full(n, -1, dtype=int)
     cbm, cbmbar = False, -1; csm, csmbar = False, -1
@@ -325,7 +300,6 @@ def build_context(df):
         bull_mss[i], bull_mss_bar[i] = cbm, cbmbar
         bear_mss[i], bear_mss_bar[i] = csm, csmbar
 
-    # FVG
     bTop = np.full(n, np.nan); bBot = np.full(n, np.nan); bActive = np.zeros(n, dtype=bool)
     sTop = np.full(n, np.nan); sBot = np.full(n, np.nan); sActive = np.zeros(n, dtype=bool)
     cbt, cbb, cbbar, cbact = np.nan, np.nan, -1, False
@@ -343,7 +317,6 @@ def build_context(df):
     bCE = np.where(bActive, (bTop + bBot) / 2.0, np.nan)
     sCE = np.where(sActive, (sTop + sBot) / 2.0, np.nan)
 
-    # OB
     bOBHigh = np.full(n, np.nan); bOBLow = np.full(n, np.nan); bOBMT = np.full(n, np.nan)
     bOBActive = np.zeros(n, dtype=bool)
     sOBHigh = np.full(n, np.nan); sOBLow = np.full(n, np.nan); sOBMT = np.full(n, np.nan)
@@ -361,7 +334,6 @@ def build_context(df):
         bOBHigh[i], bOBLow[i], bOBMT[i], bOBActive[i] = cboH, cboL, cboMT, cboAct
         sOBHigh[i], sOBLow[i], sOBMT[i], sOBActive[i] = csoH, csoL, csoMT, csoAct
 
-    # BREAKER
     bBrkHigh = np.full(n, np.nan); bBrkLow = np.full(n, np.nan); bBrkActive = np.zeros(n, dtype=bool)
     sBrkHigh = np.full(n, np.nan); sBrkLow = np.full(n, np.nan); sBrkActive = np.zeros(n, dtype=bool)
     cbbrh, cbbrl, cbbrbar, cbbract = np.nan, np.nan, -1, False
@@ -380,11 +352,9 @@ def build_context(df):
     bBrkCE = np.where(bBrkActive, (bBrkHigh + bBrkLow) / 2.0, np.nan)
     sBrkCE = np.where(sBrkActive, (sBrkHigh + sBrkLow) / 2.0, np.nan)
 
-    # PROPULSION
     bProp = bOBActive & (c < o) & (h <= bOBHigh) & (l >= bOBLow)
     sProp = sOBActive & (c > o) & (l >= sOBLow) & (h <= sOBHigh)
 
-    # LIQUIDITY VOID
     high_s2 = np.concatenate([np.full(2, np.nan), high_a[:-2]])
     low_s2 = np.concatenate([np.full(2, np.nan), low_a[:-2]])
     with np.errstate(invalid='ignore'):
@@ -393,29 +363,23 @@ def build_context(df):
     lqVoidUp = np.nan_to_num(lqVoidUp).astype(bool)
     lqVoidDn = np.nan_to_num(lqVoidDn).astype(bool)
 
-    # OPEN FLOAT
     floatUp = (ta_highest(df["high"], 20).values > ta_highest(df["high"], 40).shift(10).values)
     floatDn = (ta_lowest(df["low"], 20).values < ta_lowest(df["low"], 40).shift(10).values)
 
-    # BPR
     bprBull = bActive & sActive & (bBot <= sTop) & (bTop >= sBot)
     bprBear = bActive & sActive & (sBot <= bTop) & (sTop >= bBot)
 
-    # REJECTION
     rejTouchBull = np.zeros(n, dtype=bool); rejTouchBear = np.zeros(n, dtype=bool)
     for i in range(2, n):
         rejBlock = (h[i-1] < h[i-2]) and (c[i-1] > o[i-1])
-        if rejBlock and l[i] <= l[i-1] and c[i] > l[i-1]:
-            rejTouchBull[i] = True
+        if rejBlock and l[i] <= l[i-1] and c[i] > l[i-1]: rejTouchBull[i] = True
         rejBlockS = (l[i-1] > l[i-2]) and (c[i-1] < o[i-1])
-        if rejBlockS and h[i] >= h[i-1] and c[i] < h[i-1]:
-            rejTouchBear[i] = True
+        if rejBlockS and h[i] >= h[i-1] and c[i] < h[i-1]: rejTouchBear[i] = True
 
-    # MITIGATION
     mitBull = bBrkActive & (c < o) & (l <= bBrkCE) & (l >= bBrkLow)
     mitBear = sBrkActive & (c > o) & (h >= sBrkCE) & (h <= sBrkHigh)
 
-    # POWER OF 3 (Asia High/Low من الشمعة اليومية السابقة)
+    # Power of 3 (Asia High/Low من الشمعة اليومية السابقة)
     df_copy = df.copy()
     df_copy["date_ny"] = df_copy["datetime"].dt.tz_convert(NY_TZ).dt.date
     df_copy["high_d"] = df_copy.groupby("date_ny")["high"].transform("max")
@@ -432,7 +396,6 @@ def build_context(df):
     p3Bull = np.nan_to_num(p3Bull).astype(bool)
     p3Bear = np.nan_to_num(p3Bear).astype(bool)
 
-    # QUARTERLY
     q4 = (df["datetime"].dt.month >= 10).values
 
     # NDOG / ORG
@@ -457,7 +420,6 @@ def build_context(df):
     ndogTouchBull = np.nan_to_num(ndogTouchBull).astype(bool); ndogTouchBear = np.nan_to_num(ndogTouchBear).astype(bool)
     orgTouchBull = np.nan_to_num(orgTouchBull).astype(bool); orgTouchBear = np.nan_to_num(orgTouchBear).astype(bool)
 
-    # RECENT MSS
     recentBullMSS = bull_mss & ((np.arange(n) - bull_mss_bar) <= 10)
     recentBearMSS = bear_mss & ((np.arange(n) - bear_mss_bar) <= 10)
 
@@ -491,6 +453,7 @@ def build_context(df):
     }
 
 
+# ==================== فحص الإشارة ====================
 def check_signal(df5, df1h, state, now_utc, now_ny):
     print("   [check_signal] بدء...")
     try:
@@ -519,10 +482,10 @@ def check_signal(df5, df1h, state, now_utc, now_ny):
             sessions["NFP"], sessions["TGIF"]
         ])
         sessOK = any_kz and not is_blackout(now_ny)
-        
+
         if not sessOK:
             active_names = [k for k, v in sessions.items() if v]
-            print(f"   [check_signal] ❌ sessOK=False (sessions: {active_names}, blackout: {is_blackout(now_ny)})")
+            print(f"   [check_signal] ❌ sessOK=False (sessions: {active_names})")
             return None
 
         if state["trade_count_today"] >= MAX_TRADES_PER_DAY:
@@ -672,7 +635,6 @@ def check_signal(df5, df1h, state, now_utc, now_ny):
             direction = "SELL"
 
         if np.isnan(entry) or np.isnan(sl_level):
-            print(f"   [check_signal] ❌ NaN")
             return None
         sl_pts = abs(entry - sl_level) * MULT
         if sl_pts < MIN_SL_PTS or sl_pts > MAX_SL_PTS:
@@ -692,14 +654,15 @@ def check_signal(df5, df1h, state, now_utc, now_ny):
         return None
 
 
+# ==================== الدالة الرئيسية ====================
 def main():
-    print("🤖 بدء...")
+    print("🤖 MSNR Bot Scan — بدء...")
     try:
         state = load_state()
         now_utc = datetime.now(ZoneInfo("UTC"))
         now_ny = now_utc.astimezone(NY_TZ)
 
-        # ⬅️⬅️⬅️ التعديل 1: فحص الويكند ⬅️⬅️⬅️
+        # فحص الويكند
         if now_ny.weekday() >= 5:
             day_name = "السبت" if now_ny.weekday() == 5 else "الأحد"
             print(f"📅 الويكند ({day_name}) — البوت معطّل")
@@ -712,34 +675,28 @@ def main():
             state["models_done_today"] = []
             state["last_day"] = today
 
-        print("📌 فتح جلسة...")
-        account_id = open_session()
-        if not account_id:
-            send_telegram("❌ فشل فتح الجلسة")
-            save_state(state); return
-
         print("📌 جلب M5...")
-        df5 = fetch_candles(account_id, SYMBOL, "M5", 500, 42)
+        df5 = fetch_candles(SYMBOL, "5min", 500)
         print("📌 جلب H1...")
-        df1h = fetch_candles(account_id, SYMBOL, "H1", 500, 500)
+        df1h = fetch_candles(SYMBOL, "1h", 500)
 
         if df5 is None or df1h is None:
-            send_telegram("❌ فشل جلب البيانات")
+            send_telegram("❌ فشل جلب البيانات من Twelve Data")
             save_state(state); return
 
-        # ⬅️⬅️⬅️ التعديل 2: فحص البيانات القديمة ⬅️⬅️⬅️
+        # فحص البيانات القديمة
         last_candle_time = df5.iloc[-1]["datetime"]
         minutes_old = (now_utc - last_candle_time).total_seconds() / 60
         print(f"⏱️ عمر آخر شمعة: {minutes_old:.1f} دقيقة")
         if minutes_old > STALE_DATA_MINUTES:
             print(f"⚠️ البيانات قديمة ({minutes_old:.0f} دقيقة) — تخطي")
-            send_telegram(f"⚠️ السوق معزّل أو البيانات قديمة\nعمر آخر شمعة: {minutes_old:.0f} دقيقة\n(الحد المسموح: {STALE_DATA_MINUTES} دقيقة)")
             save_state(state)
             return
 
         price = float(df5.iloc[-1]["close"])
         print(f"💰 السعر: {price} | Mosul: {fmt_mosul(now_utc)} | NY: {now_ny.strftime('%H:%M')}")
 
+        # إدارة صفقة نشطة
         if state["active_trade"] is not None:
             print("📌 إدارة صفقة نشطة...")
             manage_trade(state, price, now_utc)
@@ -747,6 +704,7 @@ def main():
             print("✅ انتهى — تم إدارة الصفقة")
             return
 
+        # فحص إشارة جديدة
         print("📌 فحص إشارة...")
         sig = check_signal(df5, df1h, state, now_utc, now_ny)
         if sig is None:
@@ -763,14 +721,24 @@ def main():
         state["trade_count_today"] += 1
         state["last_entry_time"] = now_utc.isoformat()
         state["models_done_today"].append(model)
-        send_telegram(f"🚀 صفقة جديدة!\n\nالنموذج: {sig['model']}\nالاتجاه: {sig['direction']}\nالدخول: {sig['entry']}\nالستوب: {sig['sl']}\nTP1: {sig['tp1']}\nTP2: {sig['tp2']}\nTP3: {sig['tp3']}\n\nالوقت: {fmt_mosul(now_utc)} (الموصل)")
+        send_telegram(
+            f"🚀 صفقة جديدة!\n\n"
+            f"النموذج: {sig['model']}\n"
+            f"الاتجاه: {sig['direction']}\n"
+            f"الدخول: {sig['entry']}\n"
+            f"الستوب: {sig['sl']}\n"
+            f"TP1: {sig['tp1']}\n"
+            f"TP2: {sig['tp2']}\n"
+            f"TP3: {sig['tp3']}\n\n"
+            f"الوقت: {fmt_mosul(now_utc)} (الموصل)"
+        )
         save_state(state)
         print("✅ إشارة مرسلة")
     except Exception as e:
         print(f"❌❌❌ خطأ في main: {e}")
         traceback.print_exc()
         try:
-            send_telegram(f"❌ خطأ: {e}")
+            send_telegram(f"❌ MSNR Bot Scan خطأ: {e}")
         except:
             pass
 
