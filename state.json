@@ -1,21 +1,7 @@
 {
-  "active_trade": {
-    "model": "OB",
-    "direction": "SELL",
-    "entry": 4159.1,
-    "sl": 4165.94,
-    "tp1": 4152.27,
-    "tp2": 4145.43,
-    "tp3": 4138.59,
-    "tp1_hit": false,
-    "tp2_hit": false,
-    "tp3_hit": false,
-    "entry_time": "2026-10-06T15:18:03.229215+00:00"
-  },
-  "last_entry_time": "2026-10-06T15:18:03.229215+00:00",
-  "trade_count_today": 1,
-  "last_day": "2026-10-06",
-  "models_done_today": [
-    "OB"
-  ]
+  "active_trade": null,
+  "last_entry_time": null,
+  "trade_count_today": 0,
+  "last_day": null,
+  "models_done_today": []
 }
