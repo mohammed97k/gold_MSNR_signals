@@ -159,16 +159,17 @@ def load_state():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE) as f:
             s = json.load(f)
-            print("State: active_trade=" + str(s.get('active_trade') is not None) + " | trades_today=" + str(s.get('trade_count_today', 0)))
+            active = s.get('active_trade')
+            print("State: active_trade=" + ("YES" if active else "NO") + " | trades_today=" + str(s.get('trade_count_today', 0)))
             return s
-    print("State file new")
+    print("State new")
     return {"active_trade": None, "last_entry_time": None, "trade_count_today": 0, "last_day": None, "models_done_today": []}
 
 
 def save_state(s):
     with open(STATE_FILE, "w") as f:
         json.dump(s, f, indent=2)
-    print("State saved: active_trade=" + str(s.get('active_trade') is not None))
+    print("State saved: active_trade=" + ("YES" if s.get('active_trade') else "NO"))
 
 
 def manage_trade(state, current_price, now_utc):
@@ -185,7 +186,7 @@ def manage_trade(state, current_price, now_utc):
     tp2 = t["tp2"]
     tp3 = t["tp3"]
     time_str = fmt_mosul(now_utc)
-    print("[manage_trade] " + str(t.get('model')) + " " + d + " @ " + str(e))
+    print("[manage_trade] " + str(t.get('model')) + " " + d + " @ " + str(e) + " | price: " + str(current_price))
 
     entry_time_str = t.get("entry_time")
     if entry_time_str:
@@ -196,31 +197,79 @@ def manage_trade(state, current_price, now_utc):
             if bars_elapsed >= MAX_BARS_TRADE:
                 pnl_pts = (e - current_price) if d == "SELL" else (current_price - e)
                 pnl_pts *= MULT
-                send_telegram("Time Exit (60 bars)\n" + str(t['model']) + " " + d + "\n" + str(e) + "\nPnL: " + str(round(pnl_pts, 2)) + " pts\n" + time_str)
+                send_telegram(
+                    "Time Exit (60 bars)\n" +
+                    "Model: " + str(t['model']) + "\n" +
+                    "Direction: " + d + "\n" +
+                    "Entry: " + str(e) + "\n" +
+                    "Current: " + str(current_price) + "\n" +
+                    "PnL: " + str(round(pnl_pts, 2)) + " pts\n" +
+                    "Time: " + time_str
+                )
                 state["active_trade"] = None
                 return
         except Exception as e2:
             print("[manage_trade] Time error: " + str(e2))
 
+    # ========== STOP LOSS ==========
     if (d == "BUY" and current_price <= sl) or (d == "SELL" and current_price >= sl):
         if t["tp1_hit"]:
-            send_telegram("SL hit after TP1 (BE)\n" + str(t['model']) + " " + d + "\n" + str(e) + " | " + time_str)
+            send_telegram(
+                "SL hit after TP1 (Break Even)\n" +
+                "Model: " + str(t['model']) + "\n" +
+                "Direction: " + d + "\n" +
+                "Entry: " + str(e) + "\n" +
+                "SL: " + str(sl) + " (BE)\n" +
+                "Time: " + time_str
+            )
         else:
-            send_telegram("SL hit!\n" + str(t['model']) + " " + d + "\n" + str(e) + "\n" + time_str)
+            send_telegram(
+                "SL hit!\n" +
+                "Model: " + str(t['model']) + "\n" +
+                "Direction: " + d + "\n" +
+                "Entry: " + str(e) + "\n" +
+                "SL: " + str(sl) + "\n" +
+                "Time: " + time_str
+            )
         state["active_trade"] = None
         return
 
+    # ========== TP1 ==========
     if not t["tp1_hit"] and ((d == "BUY" and current_price >= tp1) or (d == "SELL" and current_price <= tp1)):
         t["tp1_hit"] = True
-        send_telegram("TP1 hit!\n" + str(t['model']) + " " + d + "\nTP1: " + str(tp1) + "\n" + time_str)
+        send_telegram(
+            "TP1 hit! Book your profit\n" +
+            "Model: " + str(t['model']) + "\n" +
+            "Direction: " + d + "\n" +
+            "Entry: " + str(e) + "\n" +
+            "TP1: " + str(tp1) + " ✓\n" +
+            "Move SL to BE: " + str(e) + "\n" +
+            "Time: " + time_str
+        )
 
+    # ========== TP2 ==========
     if t["tp1_hit"] and not t["tp2_hit"] and ((d == "BUY" and current_price >= tp2) or (d == "SELL" and current_price <= tp2)):
         t["tp2_hit"] = True
-        send_telegram("TP2 hit!\n" + str(t['model']) + "\nTP2: " + str(tp2) + "\n" + time_str)
+        send_telegram(
+            "TP2 hit!\n" +
+            "Model: " + str(t['model']) + "\n" +
+            "Direction: " + d + "\n" +
+            "Entry: " + str(e) + "\n" +
+            "TP2: " + str(tp2) + " ✓\n" +
+            "Time: " + time_str
+        )
 
+    # ========== TP3 ==========
     if t["tp2_hit"] and not t["tp3_hit"] and ((d == "BUY" and current_price >= tp3) or (d == "SELL" and current_price <= tp3)):
         t["tp3_hit"] = True
-        send_telegram("TP3 hit!\n" + str(t['model']) + "\nTP3: " + str(tp3) + "\n" + time_str)
+        send_telegram(
+            "TP3 hit! Celebrate!\n" +
+            "Model: " + str(t['model']) + "\n" +
+            "Direction: " + d + "\n" +
+            "Entry: " + str(e) + "\n" +
+            "TP3: " + str(tp3) + " ✓\n" +
+            "Time: " + time_str
+        )
         state["active_trade"] = None
 
 
@@ -815,6 +864,22 @@ def main():
             state["models_done_today"] = []
             state["last_day"] = today
 
+        # ========== Active trade management FIRST ==========
+        if state["active_trade"] is not None:
+            print("Active trade found. Fetching M5 for management...")
+            df5 = fetch_candles(SYMBOL, "5min", 100)
+            if df5 is None:
+                print("Failed to fetch M5 - cannot manage trade")
+                save_state(state)
+                return
+            price = float(df5.iloc[-1]["close"])
+            print("Price: " + str(price) + " | Mosul: " + fmt_mosul(now_utc))
+            manage_trade(state, price, now_utc)
+            save_state(state)
+            print("Done - trade managed")
+            return
+
+        # ========== Check for new signal ==========
         print("Fetch M5...")
         df5 = fetch_candles(SYMBOL, "5min", 500)
         print("Fetch H1...")
@@ -835,13 +900,6 @@ def main():
 
         price = float(df5.iloc[-1]["close"])
         print("Price: " + str(price) + " | Mosul: " + fmt_mosul(now_utc) + " | NY: " + now_ny.strftime('%H:%M'))
-
-        if state["active_trade"] is not None:
-            print("Managing active trade...")
-            manage_trade(state, price, now_utc)
-            save_state(state)
-            print("Done - trade managed")
-            return
 
         print("Checking signal...")
         sig = check_signal(df5, df1h, state, now_utc, now_ny)
